@@ -29,7 +29,7 @@ from Crypto.Cipher import AES
 import os
 import random
 
-PORT = 9002
+PORT = 9004
 
 KEYSIZE = 16
 KEY = "AAA" + "BBB" + "CCC" + '\x01' + "\x80" * 6

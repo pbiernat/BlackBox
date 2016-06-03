@@ -1,8 +1,8 @@
 '''
 This server is a modified version of the previous one.
 
-
-Good luck!
+CBC mode is used instead of ECB mode. 
+You must supply a ciphertext that will contain the string ;admin=true.
 
 Ciphertexts are sent back and forth as ASCII Encoded Hex Strings. 0xFF will be sent as 
 "FF" (2 Bytes), not as "\xff" (1 Byte).
@@ -17,46 +17,50 @@ Email biernp@rpi.edu with questions/comments :)
 
 from twisted.internet import reactor, protocol
 from Crypto.Cipher import AES
-from mersenne import mtwister
-import time
 import os
 import random
-import struct
-PORT = 9003
+
+PORT = 9002
 
 KEYSIZE = 16
-#KEY = "AAA" + "BBB" + "CCC" + '\x01' + "\x80" * 6
-IV = "A" * 16
-SECRET = "flag{Bu7_da_key_wuz_r4nd0m!!1!}"
+KEY = "AAA" + "BBB" + "CCC" + '\x01' + "\x80" * 6
+IV = "\x00" * KEYSIZE
+SECRET = "flag{fl!ppd_b!tz_synk_cyb3r_sh!pz}"
+
+class bcolors:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+    CLEAR = '\x1b[2J\x1b[1;1H'
 
 
+BANNER = bcolors.OKBLUE + """
+.--------------------------------------------.
+|+ [ BLACKBOX ]  PUBLIC API DOCS v1.33.7   + |
+'--------------------------------------------'""" + bcolors.ENDC
+
+DOCS = """
+|                                            |
+|                                            |
+|getapikey:              Get an Account      |
+|getflag:<admin_apikey>  Get a Flag!!!!      |
+|                                            |
+|                                            |
+'--------------------------------------------'
+"""
 def pad(instr, length):
-        '''
-	Generate valid PKCS#7 Padding
-	'''
-	if(length == None):
+        if(length == None):
                 print "Supply a length to pad to"
-        elif(len(instr) < length):
-                return instr + chr((length - len(instr))) * (length - len(instr))
         elif(len(instr) % length == 0):
-                #Add a block-length worth of padding. 
-                return instr + (chr(length) * length)
+                print "No Padding Needed"
+                return instr
         else:
-                return instr + chr((length - (len(instr) % length ))) * (length - (len(instr) % length ))
-
-
-def valid_padding(instr):
-        '''
-        Determine if valid PKCS#7 Padding is present in instr.
-        '''
-        #Grab the last byte of instr.
-        length = instr[-1]
-#       print length.encode('hex')
-        test = instr[-1 * int(length.encode('hex'),16):]
-        test = test.replace(length,"")
-        if (test != ""):
-                return False
-        return True
+                return instr + ' ' * (length - (len(instr) % length ))
 
 def encrypt_block(key, plaintext):
         encobj = AES.new(key, AES.MODE_ECB)
@@ -102,7 +106,8 @@ def encrypt_cbc(key,IV, plaintext):
         return ctxt
 
 def decrypt_cbc(key,IV,ctxt):
-        '''High Level function to decrypt thins in AES CBC mode.
+        '''
+        High Level function to decrypt thins in AES CBC mode.
         1: Split Ciphertext into blocks of len(Key)
         2: Decrypt block.
         3: For the first block, xor w/ IV. For the others, xor with last ciphertext block.
@@ -123,46 +128,71 @@ def decrypt_cbc(key,IV,ctxt):
         return ptxt
 
 
-def padding_check(data):
-	print "DATA:"
-	print data	
-	print decrypt_cbc(KEY,IV,data)
-	return valid_padding(decrypt_cbc(KEY,IV,data))
-
-def get_your_ctxt():
-	'''
-	The seed is random.
-	The internal state of the PRNG is randomized.
-	The key is random.
-	It's secure, I promise ;).
-	'''
-	seed = int(time.time()) + random.randint(40,1000)
-	mt = mtwister(seed)
-	print "Seed: " + str(seed)
-	rand = random.randint(0,100)
-	for i in range(0,rand):
-		mt.extract_number()
-	key = struct.pack("<Q",mt.extract_number()) * 2
-	return encrypt_cbc(key,IV,pad(SECRET,len(key)))
 
 class MyServer(protocol.Protocol):
+
+    def mkprofile(self, email):
+	if((";" in email)):
+		return -1
+	prefix = "comment1=wowsuch%20CBC;userdata="
+	suffix = ";coment2=%20suchsafe%20very%20encryptwowww"	
+	ptxt = prefix + email + suffix
+	return encrypt_cbc(self.key, self.iv, ptxt)	
+
+
+    def parse_profile(self, data):
+	ptxt = decrypt_cbc(self.key,self.iv, data.encode('hex'))
+	ptxt = ptxt.replace(" ","")
+	print ptxt
+	if ";admin=true" in ptxt:
+		return 1
+	return 0
+
+    def print_docs(self):
+        self.transport.write(BANNER)
+        self.transport.write(DOCS)
+
     def dataReceived(self,data):
 	if(len(data) > 512):
 		self.transport.write("Data too long.\n")
 		self.transport.loseConnection()
-		return
+		return        
+        
 #Make Profile From "Email"
-	if(data.startswith("get:")):
-		resp = get_your_ctxt()
+        if(data.startswith("getapikey:")):
+		data = data[10:]
+		resp = self.mkprofile(data)
 		if (resp == -1):
 			self.transport.write("No Cheating!\n")
 		else:
 			self.transport.write(resp)
 
+#Decrypt Ciphertext and "parse" into Profile
+	elif(data.startswith("getflag:")):
+		self.transport.write("Parsing Profile...\n")
+		data = data[8:].decode('hex')
+		if (len(data) % 32 != 0):
+			self.transport.write("[BLACKBOX] Invalid Length for API Endpoint\n")
+			self.transport.loseConnection()
+			return
+		
+		if (self.parse_profile(data) == 1):
+			self.transport.write("Congratulations!\nThe Secret is: ")
+			self.transport.write(SECRET)
+			self.transport.loseConnection()
+		
+		else:
+			self.transport.write("[BLACKBOX] You are a normal user.\n")
+	
 	else:
 		self.transport.write("Syntax Error")
 		self.transport.loseConnection()
 
+
+    def connectionMade(self):
+        self.key = os.urandom(16)
+        self.iv = os.urandom(16)
+        self.print_docs()
 
 class MyServerFactory(protocol.Factory):
     protocol = MyServer

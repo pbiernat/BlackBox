@@ -14,7 +14,7 @@ import random
 import struct
 import seccure
 import gmpy
-PORT = 9007
+PORT = 9009
 
 SECRET = "!z_dat_wat_u_k4ll_r@nd0m?"
 
